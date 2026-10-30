@@ -1,0 +1,1 @@
+export const AUTHORIZED_ADMIN_UID = __ETZ_ADMIN_UID__;

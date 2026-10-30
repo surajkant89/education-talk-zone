@@ -1,0 +1,168 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.uid == 'IVcKOgqNzZh1LOYVJywBubatswd2';
+    }
+
+    function validId(id) {
+      return id.matches('^ETZ-CERT-[0-9]{4}-[A-HJ-NP-Z2-9]{8}$');
+    }
+
+    function validPrivate(data, id) {
+      return data.keys().hasAll([
+          'verificationId', 'studentName', 'certificateType', 'courseOrEvent',
+          'issueDate', 'grade', 'courseDuration', 'instituteName', 'status',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'verificationId', 'studentName', 'certificateType', 'courseOrEvent',
+          'issueDate', 'grade', 'courseDuration', 'instituteName', 'status',
+          'createdAt', 'updatedAt'
+        ])
+        && data.verificationId == id
+        && validId(data.verificationId)
+        && data.studentName is string
+        && data.studentName.size() > 0
+        && data.studentName.size() <= 120
+        && data.certificateType in [
+          'Participation Certificate',
+          'Course Completion Certificate'
+        ]
+        && data.courseOrEvent is string
+        && data.courseOrEvent.size() > 0
+        && data.courseOrEvent.size() <= 160
+        && data.issueDate is string
+        && data.issueDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.grade is string
+        && data.grade.size() <= 40
+        && data.courseDuration is string
+        && data.courseDuration.size() > 0
+        && data.courseDuration.size() <= 80
+        && data.instituteName == 'Education Talk Zone'
+        && data.status in ['valid', 'revoked']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function validPublic(data, id) {
+      return data.keys().hasAll([
+          'verificationId', 'studentName', 'certificateType', 'courseOrEvent',
+          'issueDate', 'grade', 'courseDuration', 'instituteName', 'status'
+        ])
+        && data.keys().hasOnly([
+          'verificationId', 'studentName', 'certificateType', 'courseOrEvent',
+          'issueDate', 'grade', 'courseDuration', 'instituteName', 'status'
+        ])
+        && data.verificationId == id
+        && validId(data.verificationId)
+        && data.studentName is string
+        && data.studentName.size() > 0
+        && data.studentName.size() <= 120
+        && data.certificateType in [
+          'Participation Certificate',
+          'Course Completion Certificate'
+        ]
+        && data.courseOrEvent is string
+        && data.courseOrEvent.size() > 0
+        && data.courseOrEvent.size() <= 160
+        && data.issueDate is string
+        && data.issueDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.grade is string
+        && data.grade.size() <= 40
+        && data.courseDuration is string
+        && data.courseDuration.size() > 0
+        && data.courseDuration.size() <= 80
+        && data.instituteName == 'Education Talk Zone'
+        && data.status in ['valid', 'revoked'];
+    }
+
+    function publicMatchesPrivate(privateData, publicData) {
+      return publicData.verificationId == privateData.verificationId
+        && publicData.studentName == privateData.studentName
+        && publicData.certificateType == privateData.certificateType
+        && publicData.courseOrEvent == privateData.courseOrEvent
+        && publicData.issueDate == privateData.issueDate
+        && publicData.grade == privateData.grade
+        && publicData.courseDuration == privateData.courseDuration
+        && publicData.instituteName == privateData.instituteName
+        && publicData.status == privateData.status;
+    }
+
+    match /certificates/{verificationId} {
+      allow get, list: if isAdmin();
+
+      allow create: if isAdmin()
+        && validPrivate(request.resource.data, verificationId)
+        && request.resource.data.status == 'valid'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && existsAfter(
+          /databases/$(database)/documents/publicCertificates/$(verificationId)
+        )
+        && publicMatchesPrivate(
+          request.resource.data,
+          getAfter(
+            /databases/$(database)/documents/publicCertificates/$(verificationId)
+          ).data
+        );
+
+      allow update: if isAdmin()
+        && validPrivate(request.resource.data, verificationId)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time
+        && (
+          resource.data.status != 'revoked'
+          || request.resource.data.status == 'revoked'
+        )
+        && existsAfter(
+          /databases/$(database)/documents/publicCertificates/$(verificationId)
+        )
+        && publicMatchesPrivate(
+          request.resource.data,
+          getAfter(
+            /databases/$(database)/documents/publicCertificates/$(verificationId)
+          ).data
+        );
+
+      allow delete: if false;
+    }
+
+    match /publicCertificates/{verificationId} {
+      allow get: if isAdmin() || validId(verificationId);
+      allow list: if false;
+
+      allow create: if isAdmin()
+        && validPublic(request.resource.data, verificationId)
+        && existsAfter(
+          /databases/$(database)/documents/certificates/$(verificationId)
+        )
+        && publicMatchesPrivate(
+          getAfter(
+            /databases/$(database)/documents/certificates/$(verificationId)
+          ).data,
+          request.resource.data
+        );
+
+      allow update: if isAdmin()
+        && validPublic(request.resource.data, verificationId)
+        && request.resource.data.verificationId == resource.data.verificationId
+        && (
+          resource.data.status != 'revoked'
+          || request.resource.data.status == 'revoked'
+        )
+        && existsAfter(
+          /databases/$(database)/documents/certificates/$(verificationId)
+        )
+        && publicMatchesPrivate(
+          getAfter(
+            /databases/$(database)/documents/certificates/$(verificationId)
+          ).data,
+          request.resource.data
+        );
+
+      allow delete: if false;
+    }
+  }
+}
